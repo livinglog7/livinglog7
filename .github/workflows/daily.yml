@@ -35,13 +35,16 @@ jobs:
       - name: 도구 설치
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg fonts-noto-cjk
+          sudo apt-get install -y -qq ffmpeg fonts-noto-cjk fonts-noto-cjk-extra
           pip install -q requests pillow
           mkdir -p fonts
+          curl -fsSL -o /tmp/pd.zip https://github.com/orioncactus/pretendard/releases/download/v1.3.9/Pretendard-1.3.9.zip \
+            && unzip -j -o -q /tmp/pd.zip "public/static/Pretendard-Black.otf" "public/static/Pretendard-Bold.otf" "public/static/Pretendard-Medium.otf" -d fonts || true
           for w in Black Bold Medium; do
-            curl -fsSL -o fonts/Pretendard-$w.otf \
+            [ -s fonts/Pretendard-$w.otf ] || curl -fsSL -o fonts/Pretendard-$w.otf \
               https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/public/static/Pretendard-$w.otf || true
           done
+          echo "::notice title=폰트::$(ls fonts | tr '\n' ' ')"
 
       - name: 영상 제작
         env:

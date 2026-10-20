@@ -40,6 +40,7 @@ FONT_CANDIDATES = {
     "black": [
         "fonts/Pretendard-Black.otf",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Black.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
     ],
     "bold": [
         "fonts/Pretendard-Bold.otf",
@@ -75,7 +76,7 @@ def _font_file(weight: str) -> tuple[str, int]:
                     return p, idx
             return p, 0
         return p, 0
-    found = glob.glob("/usr/share/fonts/**/*CJK*", recursive=True)
+    found = sorted(glob.glob("/usr/share/fonts/**/NotoSansCJK*", recursive=True))
     if found:
         return found[0], 0
     raise RuntimeError("한글 폰트를 찾지 못했습니다")
