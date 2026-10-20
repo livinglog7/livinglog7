@@ -237,11 +237,13 @@ def gemini_script(p: dict, imgs: list) -> dict:
     key = env("GEMINI_API_KEY")
     delivery = ", ".join(x for x in ["로켓배송" if p.get("rocketDelivery") else "",
                                      "무료배송" if p.get("freeShipping") else ""] if x) or "정보 없음"
-    text = PROMPT.format(title=p.get("title"), brand=p.get("brand") or "정보 없음",
-                         price=p.get("price"), rating=p.get("rating"),
-                         reviews=p.get("reviewCount"), delivery=delivery,
-                         category=p.get("categoryPath") or "정보 없음",
-                         desc=(p.get("description") or "정보 없음")[:600], n=len(imgs))
+    fill = {"title": p.get("title"), "brand": p.get("brand") or "정보 없음",
+            "price": p.get("price"), "rating": p.get("rating"), "reviews": p.get("reviewCount"),
+            "delivery": delivery, "category": p.get("categoryPath") or "정보 없음",
+            "desc": (p.get("description") or "정보 없음")[:600], "n": len(imgs)}
+    text = PROMPT
+    for k, v in fill.items():  # JSON 예시의 중괄호와 충돌하지 않게 직접 치환
+        text = text.replace("{" + k + "}", str(v))
     parts = [{"text": text}]
     for im in imgs[:10]:
         thumb = Image.open(im["path"])
