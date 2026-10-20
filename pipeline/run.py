@@ -233,6 +233,31 @@ PROMPT = """너는 살림 채널 '리빙로그'의 숏폼 광고 카피라이터
 """
 
 
+def gemini_model(key: str) -> str:
+    """사용 가능한 모델 중 가장 최신 Flash(이미지 입력 가능) 모델을 고른다.
+    모델이 단종돼도 자동으로 다음 모델로 넘어가게 하기 위함."""
+    r = requests.get("https://generativelanguage.googleapis.com/v1beta/models",
+                     headers={"x-goog-api-key": key}, params={"pageSize": 200}, timeout=30)
+    r.raise_for_status()
+    ok = []
+    for m in r.json().get("models", []):
+        name = m.get("name", "")
+        if "generateContent" not in m.get("supportedGenerationMethods", []):
+            continue
+        if not re.search(r"gemini-[\d.]+-flash", name):
+            continue
+        if re.search(r"lite|image|tts|live|audio|thinking|exp|8b", name):
+            continue
+        ver = tuple(int(x) for x in re.findall(r"gemini-([\d.]+)-", name)[0].split(".") if x)
+        stable = 0 if "preview" in name else 1
+        ok.append((stable, ver, -len(name), name))
+    if not ok:
+        return "models/" + config.GEMINI_MODEL
+    best = sorted(ok, reverse=True)[0][3]
+    log("Gemini 모델:", best)
+    return best
+
+
 def gemini_script(p: dict, imgs: list) -> dict:
     key = env("GEMINI_API_KEY")
     delivery = ", ".join(x for x in ["로켓배송" if p.get("rocketDelivery") else "",
@@ -252,8 +277,7 @@ def gemini_script(p: dict, imgs: list) -> dict:
         thumb.save(b, "JPEG", quality=80)
         parts.append({"inline_data": {"mime_type": "image/jpeg",
                                       "data": base64.b64encode(b.getvalue()).decode()}})
-    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"{config.GEMINI_MODEL}:generateContent")
+    url = f"https://generativelanguage.googleapis.com/v1beta/{gemini_model(key)}:generateContent"
 
     def call():
         r = requests.post(url, headers={"x-goog-api-key": key}, timeout=120, json={
