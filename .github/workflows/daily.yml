@@ -1,0 +1,77 @@
+name: 매일 숏폼 제작
+
+on:
+  schedule:
+    - cron: "37 0 * * *" # 매일 오전 9시 37분 (한국 시간)
+  workflow_dispatch:
+    inputs:
+      keyword:
+        description: "키워드 직접 지정 (비우면 오늘 순서대로)"
+        required: false
+        default: ""
+      dry_run:
+        description: "1이면 업로드 없이 영상만 만들어 확인"
+        required: false
+        default: "0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-video
+  cancel-in-progress: false
+
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 도구 설치
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-noto-cjk
+          pip install -q requests pillow
+          mkdir -p fonts
+          for w in Black Bold Medium; do
+            curl -fsSL -o fonts/Pretendard-$w.otf \
+              https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/public/static/Pretendard-$w.otf || true
+          done
+
+      - name: 영상 제작
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_VOICE_ID: ${{ vars.ELEVENLABS_VOICE_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE_KEYWORD: ${{ github.event.inputs.keyword }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: python pipeline/run.py
+
+      - name: 미리보기 보관 (확인용)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview
+          path: |
+            work/*.mp4
+            work/*.jpg
+            work/entry.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: 사이트 저장
+        if: success() && github.event.inputs.dry_run != '1'
+        run: |
+          git config user.name "livinglog7-bot"
+          git config user.email "livinglog7-bot@users.noreply.github.com"
+          git add docs
+          git diff --cached --quiet || git commit -m "상품 추가: $(python -c 'import json;print(json.load(open("docs/latest.json"))["no"])')번"
+          git pull --rebase -q origin main
+          git push -q origin HEAD:main
