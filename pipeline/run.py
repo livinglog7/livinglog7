@@ -88,7 +88,7 @@ def rough_count(n: int) -> str:
     if n >= 10000:
         man, rest = divmod(n, 10000)
         cheon = rest // 1000
-        return f"{korean_number(man)}만" + (f" {DIG[cheon] if cheon > 1 else ''}천" if cheon else "")
+        return ("만" if man == 1 else f"{korean_number(man)}만") +(f" {DIG[cheon] if cheon > 1 else ''}천" if cheon else "")
     if n >= 1000:
         return f"{korean_number(n // 1000 * 1000)}"
     return korean_number(n)
@@ -354,12 +354,13 @@ def tts(text: str, path: str, vid: str, excited=False) -> None:
 
 
 # ---------------------------------------------------------------- GitHub 릴리스 업로드
-def upload_release(no: int, files: list) -> dict:
+def upload_release(no: int, files: list, tag: str | None = None) -> dict:
     tok = env("GITHUB_TOKEN")
     h = {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"}
-    tag = f"video-{no}"
+    tag = tag or f"video-{no}"
     r = requests.post(f"https://api.github.com/repos/{config.REPO}/releases", headers=h, timeout=30,
-                      json={"tag_name": tag, "name": f"{no}번 영상", "body": "리빙로그 자동 제작"})
+                      json={"tag_name": tag, "name": f"{no}번 영상" if tag.startswith("video-") else "미리보기",
+                            "body": "리빙로그 자동 제작", "prerelease": not tag.startswith("video-")})
     if r.status_code == 422:
         r = requests.get(f"https://api.github.com/repos/{config.REPO}/releases/tags/{tag}",
                          headers=h, timeout=30)
@@ -458,8 +459,10 @@ def main():
              "hashtags": tags}
 
     if os.environ.get("DRY_RUN") == "1":
-        log("DRY_RUN: 업로드·사이트 갱신 생략")
         save_json(os.path.join(WORK, "entry.json"), entry)
+        urls = upload_release(no, [(out, "video/mp4"), (info["thumbnail"], "image/jpeg")],
+                              tag="preview")
+        log("DRY_RUN 미리보기:", urls.get(os.path.basename(out)))
         return
 
     urls = upload_release(no, [(out, "video/mp4"), (info["thumbnail"], "image/jpeg")])
