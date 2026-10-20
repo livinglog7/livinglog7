@@ -473,5 +473,25 @@ def main():
     log(f"{no}번 완료")
 
 
+def _notice(kind: str, msg: str) -> None:
+    # GitHub Actions 알림(annotation)으로도 남겨 실행 기록 화면에서 바로 보이게 한다
+    msg = msg.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+    print(f"::{kind} title=리빙로그::{msg}", flush=True)
+
+
 if __name__ == "__main__":
-    main()
+    import traceback
+    _orig_log = log
+
+    def log(*a):  # noqa: F811
+        _orig_log(*a)
+        _notice("notice", " ".join(str(x) for x in a)[:900])
+
+    try:
+        main()
+    except SystemExit as e:
+        _notice("error", f"중단: {e}")
+        raise
+    except Exception:  # noqa: BLE001
+        _notice("error", traceback.format_exc()[-1800:])
+        raise
