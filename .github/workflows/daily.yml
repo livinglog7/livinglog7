@@ -13,6 +13,10 @@ on:
         description: "1이면 업로드 없이 영상만 만들어 확인"
         required: false
         default: "0"
+      redo_no:
+        description: "이미 올린 N번 영상을 같은 번호로 다시 만들기 (비우면 새 상품)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -55,6 +59,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_KEYWORD: ${{ github.event.inputs.keyword }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
+          REDO_NO: ${{ github.event.inputs.redo_no }}
         run: python pipeline/run.py
 
       - name: 미리보기 보관 (확인용)
@@ -75,6 +80,6 @@ jobs:
           git config user.name "livinglog7-bot"
           git config user.email "livinglog7-bot@users.noreply.github.com"
           git add docs
-          git diff --cached --quiet || git commit -m "상품 추가: $(python -c 'import json;print(json.load(open("docs/latest.json"))["no"])')번"
+          git diff --cached --quiet || git commit -m "상품 추가/갱신: $(python -c 'import json;print(json.load(open("docs/latest.json"))["no"])')번"
           git pull --rebase -q origin main
           git push -q origin HEAD:main

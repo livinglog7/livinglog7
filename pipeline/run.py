@@ -419,10 +419,24 @@ def main():
     os.makedirs(WORK, exist_ok=True)
     db = load_db()
     used = {str(x["productId"]) for x in db}
-    no = max([x["no"] for x in db] or [0]) + 1
-    log(f"{no}번 상품 제작 시작")
-
-    listing, kw = pick_product(used)
+    redo = int(os.environ.get("REDO_NO", "0").strip() or 0)
+    if redo:  # 이미 올린 N번 상품 영상을 같은 번호로 다시 만든다
+        old = next((x for x in db if x["no"] == redo), None)
+        if not old:
+            raise SystemExit(f"{redo}번 상품이 없습니다")
+        no, kw = redo, old.get("keyword", "")
+        q = dict(re.findall(r"(itemId|vendorItemId)=(\d+)", old.get("link", "")))
+        listing = {"productId": old["productId"], "title": old["name"], "price": old.get("price"),
+                   "rating": old.get("rating"), "reviewCount": old.get("reviews"),
+                   "image": old.get("image"), **q,
+                   "url": f"/vp/products/{old['productId']}"
+                          + (f"?itemId={q['itemId']}" if q.get("itemId") else "")
+                          + (f"&vendorItemId={q['vendorItemId']}" if q.get("vendorItemId") else "")}
+        log(f"{no}번 상품 다시 제작")
+    else:
+        no = max([x["no"] for x in db] or [0]) + 1
+        log(f"{no}번 상품 제작 시작")
+        listing, kw = pick_product(used)
     p = product_detail(listing)
     log("선택:", p["title"], "| 별점", p.get("rating"), "| 리뷰", p.get("reviewCount"))
     imgs = download_images(p["images"], os.path.join(WORK, "img"))
@@ -507,7 +521,9 @@ def main():
     urls = upload_release(no, [(out, "video/mp4"), (info["thumbnail"], "image/jpeg")])
     entry["video"] = urls[os.path.basename(out)]
     entry["thumb"] = urls[os.path.basename(info["thumbnail"])]
+    db = [x for x in db if x["no"] != no]
     db.append(entry)
+    db.sort(key=lambda x: x["no"])
     save_json(DB, db)
     save_json(os.path.join(DOCS, "latest.json"), {
         "ok": True, "no": no, "productName": p["title"], "addedDate": today,
