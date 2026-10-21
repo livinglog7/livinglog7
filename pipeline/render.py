@@ -281,8 +281,8 @@ def build_scene(sc: dict, no: int) -> tuple[Image.Image, list]:
     else:
         raise ValueError(f"알 수 없는 장면: {kind}")
 
-    # 모든 장면 공통: 오른쪽 위 "광고 · No.N" 작은 배지
-    tag = text_layer(f"광고 · No.{no}", "bold", 34, WHITE, box=(31, 26, 23, 200), pad=(22, 10),
+    # 모든 장면 공통: 오른쪽 위 "No.N" 작은 배지
+    tag = text_layer(f"No.{no}", "bold", 34, WHITE, box=(31, 26, 23, 200), pad=(22, 10),
                      radius=18)
     base.alpha_composite(tag, (W - tag.width - 40, 60))
     return base, items
