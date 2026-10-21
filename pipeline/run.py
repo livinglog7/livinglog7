@@ -213,13 +213,16 @@ PROMPT = """너는 살림 채널 '리빙로그'의 숏폼 광고 카피라이터
 - narration은 한 문장 30자 이내, 소리 내어 읽기 자연스럽게. 괄호·이모지·영문·특수기호 금지.
 
 장면 구성
+- thumb: 대표 썸네일 제목 2줄(한 줄 8자 이내). 이 상품을 쓰면 얻는 가장 강한 결과를 보는 순간 '갖고 싶다'고 느끼게.
+  예) ["기름때 한번에", "싹 지워져요"], ["좁은 베란다", "분리수거 끝"]. 질문형보다 결과·변화형. 사실에 근거.
 - hook: 시청자가 겪는 생활 속 불편을 찌르는 질문이나 공감(스크롤을 멈추게). 가장 상황이 잘 보이는 사진 선택.
 - benefits: 3개. 각각 서로 다른 장점(공간·사용법·보관·다른 용도 등)을 보여주는 서로 다른 사진 선택. 사람이 쓰는 장면 사진을 우선.
 - proof_image / price_image / cta_image: 상품 전체가 잘 보이는 사진.
 - price_label: 상품명에 구성(예: 3개 세트, 2팩)이 분명히 있을 때만 '3개 세트'처럼, 없으면 빈 문자열.
 
 반드시 아래 JSON만 출력:
-{"hook": {"lines": ["", ""], "narration": "", "image": 0},
+{"thumb": {"lines": ["", ""], "image": 0},
+ "hook": {"lines": ["", ""], "narration": "", "image": 0},
  "benefits": [{"lines": ["", ""], "narration": "", "image": 1}, ...3개],
  "proof_image": 0, "price_image": 0, "cta_image": 0, "price_label": "",
  "youtube_title": "60자 이내 검색 잘 되는 제목", "hashtags": ["#..", "#..", "#..", "#..", "#.."]}
@@ -312,7 +315,10 @@ def gemini_script(p: dict, imgs: list) -> dict:
     bens = [b for b in (s.get("benefits") or []) if b and b.get("narration")][:3]
     if len(bens) < 2:
         raise RuntimeError("대본 장면이 부족합니다")
+    thumb = s.get("thumb") or {}
     return {
+        "thumb": {"lines": [x for x in lines(thumb.get("lines")) if x] or lines(hook.get("lines")),
+                  "image": idx(thumb.get("image"), idx(hook.get("image"), 0))},
         "hook": {"lines": lines(hook.get("lines")), "narration": clean(hook.get("narration"), 40),
                  "image": idx(hook.get("image"), 0)},
         "benefits": [{"lines": lines(b.get("lines")), "narration": clean(b.get("narration"), 40),
@@ -436,7 +442,11 @@ def main():
         badges.append("무료배송")
 
     ip = lambda k: imgs[k]["path"]  # noqa: E731
-    scenes = [{"type": "hook", "image": ip(s["hook"]["image"]), "lines": s["hook"]["lines"],
+    # 대표 썸네일 = 영상 첫 0.8초 (어느 플랫폼에서 첫 화면을 잡아도 제목이 보이게)
+    scenes = [{"type": "cover", "image": ip(s["thumb"]["image"]), "lines": s["thumb"]["lines"],
+               "rating": rating if rating >= 4.0 else None,
+               "reviews": reviews if reviews >= 50 else None, "duration": 0.8}]
+    scenes += [{"type": "hook", "image": ip(s["hook"]["image"]), "lines": s["hook"]["lines"],
                "say": s["hook"]["narration"], "excited": True}]
     for b in s["benefits"]:
         scenes.append({"type": "benefit", "image": ip(b["image"]), "lines": b["lines"],
@@ -457,6 +467,8 @@ def main():
     adir = os.path.join(WORK, "audio")
     os.makedirs(adir, exist_ok=True)
     for i, sc in enumerate(scenes):
+        if not sc.get("say"):
+            continue
         sc["audio"] = os.path.join(adir, f"s{i}.mp3")
         with_retry(lambda: tts(sc["say"], sc["audio"], vid, sc.get("excited", False)),
                    what=f"음성 {i}")
@@ -499,7 +511,7 @@ def main():
     save_json(DB, db)
     save_json(os.path.join(DOCS, "latest.json"), {
         "ok": True, "no": no, "productName": p["title"], "addedDate": today,
-        "videoUrl": entry["video"], "youtubeTitle": f"{title} #shorts"[:100],
+        "videoUrl": entry["video"], "thumbUrl": entry["thumb"], "youtubeTitle": f"{title} #shorts"[:100],
         "caption": caption, "hashtags": tags, "link": link})
     site_build.build(db)
     log(f"{no}번 완료")

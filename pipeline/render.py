@@ -9,6 +9,7 @@ Pillow로 프레임을 그리고 FFmpeg로 인코딩한다. 외부 영상 서비
   proof   : 별점·리뷰 수 숫자 올라가는 효과 + 사진
   price   : 가격 숫자 올라가는 효과 + 배송 배지 + 사진
   cta     : "프로필 링크에서 N번" + 도메인 + 사진
+  cover   : 대표 썸네일(구매욕 제목 + 별점·리뷰 배지). 영상 첫 0.8초로도 쓴다
 """
 from __future__ import annotations
 
@@ -223,6 +224,65 @@ def won(n) -> str:
     return f"{int(n):,}원"
 
 
+def short_count(n: int) -> str:
+    """175502 -> '17.5만', 27674 -> '2.7만', 3120 -> '3,120'"""
+    n = int(n)
+    if n >= 10000:  # 반올림하면 실제보다 커지므로 내림
+        v = math.floor(n / 1000) / 10 if n < 1000000 else n // 10000
+        txt = f"{v:.1f}".rstrip("0").rstrip(".") if isinstance(v, float) else str(v)
+        return txt + "만"
+    return f"{n:,}"
+
+
+def make_cover(cv: dict, no: int) -> Image.Image:
+    """대표 썸네일. 인스타 프로필(3:4로 잘림)에서도 보이도록 핵심은 y 240~1680 안에 둔다."""
+    base = Image.new("RGBA", (W, H), BG + (255,))
+
+    lines = [x for x in cv.get("lines", []) if x][:2] or ["이거 하나면", "끝이에요"]
+    y = 268
+    first = text_layer(lines[0], "black", 132, INK, max_width=W - 100)
+    paste_center(base, first, W // 2, y)
+    y += first.height + 18
+    if len(lines) > 1:
+        second = text_layer(lines[1], "black", 132, WHITE, box=ACC + (255,), pad=(44, 14),
+                            radius=26, max_width=W - 100)
+        paste_center(base, second, W // 2, y)
+        y += second.height
+    y += 40
+
+    stats_h = 150
+    photo_bottom = 1680 - stats_h - 40
+    c = card(cv["image"], 960, max(400, photo_bottom - y))
+    base.alpha_composite(c, ((W - c.width) // 2, y - 28))
+
+    pills = []
+    if cv.get("rating"):
+        pills.append(text_layer(f"★ {float(cv['rating']):.1f}", "black", 86, WHITE,
+                                box=ACC + (255,), pad=(38, 16), radius=60))
+    if cv.get("reviews"):
+        pills.append(text_layer(f"리뷰 {short_count(cv['reviews'])}+", "black", 86, WHITE,
+                                box=INK + (255,), pad=(38, 16), radius=60))
+    if pills:
+        gap = 22
+        scale = min(1.0, (W - 80) / (sum(p.width for p in pills) + gap * (len(pills) - 1)))
+        if scale < 1:
+            pills = [p.resize((int(p.width * scale), int(p.height * scale)), Image.LANCZOS)
+                     for p in pills]
+        total = sum(p.width for p in pills) + gap * (len(pills) - 1)
+        x = (W - total) // 2
+        py = 1680 - stats_h
+        for p in pills:
+            base.alpha_composite(p, (x, py))
+            x += p.width + gap
+        note = text_layer(cv.get("note") or "쿠팡 상품페이지 기준", "regular", 38, SUB)
+        paste_center(base, note, W // 2, py + pills[0].height + 14)
+
+    tag = text_layer(f"No.{no}", "bold", 40, WHITE, box=(31, 26, 23, 220), pad=(24, 10),
+                     radius=20)
+    base.alpha_composite(tag, (W - tag.width - 40, 70))
+    return base
+
+
 def build_scene(sc: dict, no: int) -> tuple[Image.Image, list]:
     """정적 배경 레이어와 애니메이션 요소 목록을 만든다."""
     base = Image.new("RGBA", (W, H), BG + (255,))
@@ -230,6 +290,8 @@ def build_scene(sc: dict, no: int) -> tuple[Image.Image, list]:
     kind = sc["type"]
     img = sc.get("image")
 
+    if kind == "cover":
+        return make_cover(sc, no), []
     if kind == "hook":
         c = card(img, 980, 1080)
         base.alpha_composite(c, ((W - c.width) // 2, 230))
@@ -299,7 +361,11 @@ def probe_duration(path: str) -> float:
 def build_audio(scenes: list, durations: list, out: str, bgm: str | None) -> None:
     inputs, filters, labels = [], [], []
     for i, sc in enumerate(scenes):
-        inputs += ["-i", sc["audio"]]
+        if sc.get("audio"):
+            inputs += ["-i", sc["audio"]]
+        else:  # 소리 없는 장면(대표 썸네일)
+            inputs += ["-f", "lavfi", "-t", f"{durations[i]:.3f}", "-i",
+                       "anullsrc=r=44100:cl=stereo"]
         filters.append(f"[{i}:a]aresample=44100,aformat=channel_layouts=stereo,"
                        f"apad=whole_dur={durations[i]:.3f},atrim=0:{durations[i]:.3f}[a{i}]")
         labels.append(f"[a{i}]")
@@ -323,6 +389,9 @@ def render(spec: dict, out_path: str, workdir: str) -> dict:
     scenes = spec["scenes"]
     durations = []
     for sc in scenes:
+        if sc.get("duration"):
+            durations.append(float(sc["duration"]))
+            continue
         d = probe_duration(sc["audio"]) + 0.35 if sc.get("audio") else 3.0
         durations.append(max(d, sc.get("min_duration", 2.2)))
 
@@ -377,9 +446,10 @@ def render(spec: dict, out_path: str, workdir: str) -> dict:
         raise RuntimeError("영상 인코딩 실패")
     os.replace(video_tmp, out_path)
 
-    # 썸네일(첫 장면 완성본)
+    # 대표 썸네일: cover 장면이 있으면 그것, 없으면 첫 장면 완성본
     thumb = os.path.splitext(out_path)[0] + ".jpg"
-    scene_frame(0, 5.0).convert("RGB").save(thumb, quality=90)
+    ci = next((k for k, sc in enumerate(scenes) if sc["type"] == "cover"), 0)
+    scene_frame(ci, 5.0).convert("RGB").save(thumb, quality=92)
     return {"duration": round(sum(durations), 2), "thumbnail": thumb, "frames": total_frames}
 
 
