@@ -24,8 +24,8 @@ EXCLUDE_WORDS = [
 ]
 
 # 상품 선택 기준
-MIN_RATING = 4.6
-MIN_REVIEWS = 500  # 판매량·평점으로 검증된 제품만
+MIN_RATING = 4.5
+MIN_REVIEWS = 100
 
 # ElevenLabs 목소리 (사장님 선택: Anna Kim)
 VOICE_NAME = "Anna Kim"
