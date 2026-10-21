@@ -258,10 +258,10 @@ def gemini_model(key: str) -> str:
         stable = 0 if "preview" in name else 1
         ok.append((stable, ver, -len(name), name))
     if not ok:
-        return "models/" + config.GEMINI_MODEL
-    best = sorted(ok, reverse=True)[0][3]
-    log("Gemini 모델:", best)
-    return best
+        return ["models/" + config.GEMINI_MODEL]
+    names = [x[3] for x in sorted(ok, reverse=True)]
+    log("Gemini 모델 순서:", ", ".join(names[:3]))
+    return names[:3]
 
 
 def gemini_script(p: dict, imgs: list) -> dict:
@@ -283,9 +283,14 @@ def gemini_script(p: dict, imgs: list) -> dict:
         thumb.save(b, "JPEG", quality=80)
         parts.append({"inline_data": {"mime_type": "image/jpeg",
                                       "data": base64.b64encode(b.getvalue()).decode()}})
-    url = f"https://generativelanguage.googleapis.com/v1beta/{gemini_model(key)}:generateContent"
+    models = gemini_model(key)
+    state = {"k": 0}
 
     def call():
+        # 한 모델이 과부하(503)·시간초과면 다음 모델로 넘어간다
+        m = models[state["k"] % len(models)]
+        state["k"] += 1
+        url = f"https://generativelanguage.googleapis.com/v1beta/{m}:generateContent"
         r = requests.post(url, headers={"x-goog-api-key": key}, timeout=120, json={
             "contents": [{"parts": parts}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0.8}})
@@ -293,7 +298,7 @@ def gemini_script(p: dict, imgs: list) -> dict:
         raw = "".join(x.get("text", "") for x in r.json()["candidates"][0]["content"]["parts"])
         return json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
 
-    s = with_retry(call, tries=4, wait=10, what="Gemini 대본")
+    s = with_retry(call, tries=6, wait=10, what="Gemini 대본")
     n = len(imgs)
 
     def idx(v, default):
