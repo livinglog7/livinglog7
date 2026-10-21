@@ -134,7 +134,8 @@ def partner_link(p: dict) -> str:
 
 def pick_product(used: set) -> tuple[dict, str]:
     forced = os.environ.get("FORCE_KEYWORD", "").strip()
-    day = dt.datetime.now(KST).toordinal()
+    start = dt.date.fromisoformat(getattr(config, "KEYWORD_START", "2026-10-22"))
+    day = (dt.datetime.now(KST).date() - start).days
     order = [forced] if forced else [config.KEYWORDS[(day + k) % len(config.KEYWORDS)]
                                      for k in range(3)]
     for kw in order:
