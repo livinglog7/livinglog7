@@ -144,6 +144,8 @@ def pick_product(used: set) -> tuple[dict, str]:
                                           "maxPages": 1, "maxListings": 20,
                                           "fetchDetails": False}, 20), what="상품 검색")
         items = [x for x in items if x.get("title") and x.get("productId") and not x.get("isAd")]
+        items = [x for x in items
+                 if not any(w in x["title"] for w in getattr(config, "EXCLUDE_WORDS", []))]
         fresh = [x for x in items if str(x["productId"]) not in used]
         good = [x for x in fresh if float(x.get("rating") or 0) >= config.MIN_RATING
                 and int(x.get("reviewCount") or 0) >= config.MIN_REVIEWS]
