@@ -142,8 +142,8 @@ def pick_product(used: set) -> tuple[dict, str]:
         log("키워드:", kw)
         items = with_retry(lambda: apify({"mode": "search", "queries": [kw],
                                           "sortBy": "saleCountDesc", "minRating": 4,
-                                          "maxPages": 1, "maxListings": 20,
-                                          "fetchDetails": False}, 20), what="상품 검색")
+                                          "maxPages": 1, "maxListings": 10,
+                                          "fetchDetails": False}, 10), what="상품 검색")
         items = [x for x in items if x.get("title") and x.get("productId") and not x.get("isAd")]
         items = [x for x in items
                  if not any(w in x["title"] for w in getattr(config, "EXCLUDE_WORDS", []))]
