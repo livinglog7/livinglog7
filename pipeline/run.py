@@ -137,7 +137,7 @@ def pick_product(used: set) -> tuple[dict, str]:
     start = dt.date.fromisoformat(getattr(config, "KEYWORD_START", "2026-10-22"))
     day = (dt.datetime.now(KST).date() - start).days
     order = [forced] if forced else [config.KEYWORDS[(day + k) % len(config.KEYWORDS)]
-                                     for k in range(3)]
+                                     for k in range(6)]
     for kw in order:
         log("키워드:", kw)
         items = with_retry(lambda: apify({"mode": "search", "queries": [kw],
@@ -271,6 +271,30 @@ def gemini_model(key: str) -> str:
     return names[:3]
 
 
+def backup_script(p: dict, n: int) -> dict:
+    """AI 없이 상품 정보만으로 만드는 기본 대본 (Gemini 장애 대비). 사실만 쓴다."""
+    title = re.sub(r"\s+", " ", p.get("title") or "").strip()
+    words = [w for w in re.split(r"[ ,/()\[\]]+", title) if w and not re.search(r"\d+(ml|L|g|kg|개|매|입)$", w)]
+    name = " ".join(words[1:4]) if len(words) > 3 else " ".join(words[:3])
+    kw = (p.get("_keyword") or name)[:9]
+    reviews = int(p.get("reviewCount") or 0)
+    r = float(p.get("rating") or 0)
+    pick = lambda k: k % max(n, 1)  # noqa: E731
+    short = f"{reviews // 10000}만" if reviews >= 10000 else f"{reviews:,}"
+    return {
+        "thumb": {"lines": [kw[:9], "다들 이거 써요"], "image": 0},
+        "hook": {"lines": [kw[:9], "고민이셨죠"], "narration": f"{kw} 고르기 어려우셨죠", "image": pick(0)},
+        "benefits": [
+            {"lines": ["리뷰가 증명한", "인기 제품"], "narration": f"리뷰가 {short} 개 넘게 쌓인 제품이에요", "image": pick(1)},
+            {"lines": ["직접 보면", "더 좋아요"], "narration": "사진으로 보면 바로 감이 와요", "image": pick(2)},
+            {"lines": [f"평점 {r:.1f}", "만족도 높아요"], "narration": f"평점도 {r:.1f}점으로 높아요", "image": pick(3)},
+        ],
+        "proof_image": 0, "price_image": 0, "cta_image": 0, "price_label": "",
+        "youtube_title": f"{name} 리뷰 {short}개 인기 살림템"[:60],
+        "hashtags": ["#" + re.sub(r"[^0-9A-Za-z가-힣]", "", kw), "#살림템", "#살림팁", "#리빙로그", "#추천템"],
+    }
+
+
 def gemini_script(p: dict, imgs: list) -> dict:
     key = env("GEMINI_API_KEY")
     delivery = ", ".join(x for x in ["로켓배송" if p.get("rocketDelivery") else "",
@@ -290,7 +314,11 @@ def gemini_script(p: dict, imgs: list) -> dict:
         thumb.save(b, "JPEG", quality=80)
         parts.append({"inline_data": {"mime_type": "image/jpeg",
                                       "data": base64.b64encode(b.getvalue()).decode()}})
-    models = gemini_model(key)
+    try:
+        models = gemini_model(key)
+    except Exception as e:  # noqa: BLE001
+        log("Gemini 모델 목록 실패:", e)
+        models = ["models/" + config.GEMINI_MODEL]
     state = {"k": 0}
 
     def call():
@@ -305,7 +333,13 @@ def gemini_script(p: dict, imgs: list) -> dict:
         raw = "".join(x.get("text", "") for x in r.json()["candidates"][0]["content"]["parts"])
         return json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
 
-    s = with_retry(call, tries=6, wait=10, what="Gemini 대본")
+    try:
+        if os.environ.get("FORCE_BACKUP_SCRIPT") == "1":
+            raise RuntimeError("시험: 기본 대본 강제")
+        s = with_retry(call, tries=6, wait=10, what="Gemini 대본")
+    except Exception as e:  # noqa: BLE001
+        log("Gemini 대본 실패 → 기본 대본 사용:", e)
+        s = backup_script(p, len(imgs))
     n = len(imgs)
 
     def idx(v, default):
@@ -398,6 +432,18 @@ def tts(text: str, path: str, vid: str, excited=False) -> None:
     raise last
 
 
+def backup_tts(text: str, path: str) -> None:
+    """ElevenLabs가 막혔을 때(크레딧 소진·장애) 쓰는 무료 한국어 음성 (Microsoft Edge 음성)."""
+    import asyncio
+    import edge_tts  # pip install edge-tts
+
+    async def go():
+        await edge_tts.Communicate(text, "ko-KR-SunHiNeural", rate="+8%").save(path)
+    asyncio.run(go())
+    if not os.path.exists(path) or os.path.getsize(path) < 1000:
+        raise RuntimeError("대체 음성 파일이 비어 있습니다")
+
+
 # ---------------------------------------------------------------- GitHub 릴리스 업로드
 def upload_release(no: int, files: list, tag: str | None = None) -> dict:
     tok = env("GITHUB_TOKEN")
@@ -427,8 +473,23 @@ def upload_release(no: int, files: list, tag: str | None = None) -> dict:
 
 
 # ---------------------------------------------------------------- main
+def already_done_today() -> bool:
+    """정기 실행이 하루에 여러 번 돌기 때문에(재시도용) 오늘 영상이 이미 있으면 건너뛴다."""
+    try:
+        with open(os.path.join(DOCS, "latest.json"), encoding="utf-8") as fp:
+            lt = json.load(fp)
+    except Exception:  # noqa: BLE001
+        return False
+    today = dt.datetime.now(KST).strftime("%Y-%m-%d")
+    return bool(lt.get("ok")) and lt.get("addedDate") == today and lt.get("videoUrl", "").startswith("https")
+
+
 def main():
     os.makedirs(WORK, exist_ok=True)
+    if (os.environ.get("EVENT_NAME") == "schedule" and not os.environ.get("REDO_NO")
+            and already_done_today()):
+        log("오늘 영상은 이미 만들어졌어요. 이번 실행은 건너뜁니다.")
+        return
     db = load_db()
     used = {str(x["productId"]) for x in db}
     redo = int(os.environ.get("REDO_NO", "0").strip() or 0)
@@ -450,12 +511,17 @@ def main():
         log(f"{no}번 상품 제작 시작")
         listing, kw = pick_product(used)
     p = product_detail(listing)
+    p["_keyword"] = kw
     log("선택:", p["title"], "| 별점", p.get("rating"), "| 리뷰", p.get("reviewCount"))
     imgs = download_images(p["images"], os.path.join(WORK, "img"))
     s = gemini_script(p, imgs)
     log("대본:", json.dumps(s, ensure_ascii=False))
 
-    vid = voice_id()
+    try:
+        vid = voice_id()
+    except Exception as e:  # noqa: BLE001
+        log("ElevenLabs 목소리 확인 실패:", e)
+        vid = ""
     rating = float(p.get("rating") or 0)
     reviews = int(p.get("reviewCount") or 0)
     price = int(p.get("price") or 0)
@@ -496,8 +562,14 @@ def main():
         if not sc.get("say"):
             continue
         sc["audio"] = os.path.join(adir, f"s{i}.mp3")
-        with_retry(lambda: tts(sc["say"], sc["audio"], vid, sc.get("excited", False)),
-                   what=f"음성 {i}")
+        try:
+            if os.environ.get("FORCE_BACKUP_TTS") == "1":
+                raise RuntimeError("시험: 대체 음성 강제")
+            with_retry(lambda: tts(sc["say"], sc["audio"], vid, sc.get("excited", False)),
+                       what=f"음성 {i}")
+        except Exception as e:  # noqa: BLE001
+            log(f"ElevenLabs 실패 → 대체 음성 사용: {e}")
+            with_retry(lambda: backup_tts(sc["say"], sc["audio"]), what=f"대체 음성 {i}")
     bgm = os.path.join(ROOT, "assets", "bgm.mp3")
     spec = {"no": no, "scenes": scenes, "bgm": bgm if os.path.exists(bgm) else None}
     out = os.path.join(WORK, f"livinglog7_{no}.mp4")
