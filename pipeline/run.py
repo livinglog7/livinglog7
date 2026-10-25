@@ -118,7 +118,8 @@ def apify(payload: dict, limit: int) -> list:
     url = f"https://api.apify.com/v2/acts/{config.APIFY_ACTOR}/run-sync-get-dataset-items"
     r = requests.post(url, params={"token": tok, "limit": limit, "maxTotalChargeUsd": "0.1",
                                    "timeout": "280"}, json=payload, timeout=320)
-    r.raise_for_status()
+    if r.status_code >= 400:  # 원인을 실행 기록에 남긴다
+        raise RuntimeError(f"Apify {r.status_code}: {r.text[:400]}")
     data = r.json()
     return data if isinstance(data, list) else []
 
@@ -154,18 +155,42 @@ def pick_product(used: set) -> tuple[dict, str]:
         if not pool:
             log("새 상품 없음, 다음 키워드로")
             continue
-        top = sorted(pool[:5], key=lambda x: int(x.get("reviewCount") or 0), reverse=True)[0]
-        return top, kw
-    raise SystemExit("오늘 키워드들에서 새 상품을 찾지 못했습니다")
+        cands = sorted(pool[:5], key=lambda x: int(x.get("reviewCount") or 0), reverse=True)
+        cands += [x for x in pool if x not in cands]
+        for top in cands[:4]:  # 상세 수집·사진이 실패하면 다음 후보로
+            try:
+                p = product_detail(top)
+                if len([u for u in p["images"] if u]) < 1:
+                    raise RuntimeError("사진 없음")
+                return p, kw
+            except Exception as e:  # noqa: BLE001
+                log("후보 건너뜀:", top.get("title", "")[:40], e)
+        log("이 키워드의 후보가 모두 실패, 다음 키워드로")
+    raise SystemExit("오늘 키워드들에서 쓸 수 있는 상품을 찾지 못했습니다")
 
 
 def product_detail(listing: dict) -> dict:
     url = listing["url"]
     if not url.startswith("http"):
         url = "https://www.coupang.com" + ("" if url.startswith("/") else "/") + url
-    rows = with_retry(lambda: apify({"mode": "url", "urls": [url], "fetchDetails": True,
-                                     "maxPages": 1, "maxListings": 1}, 1), what="상세 수집")
-    d = rows[0] if rows else {}
+    base = f"https://www.coupang.com/vp/products/{listing['productId']}"
+    variants = []
+    for u in (url, url.split("?")[0], base):
+        if u not in variants:
+            variants.append(u)
+    d, last = {}, None
+    for u in variants:  # 주소 형식 때문에 거절되면 다른 형식으로 다시
+        try:
+            rows = with_retry(lambda: apify({"mode": "url", "urls": [u], "fetchDetails": True,
+                                             "maxPages": 1, "maxListings": 1}, 1),
+                              tries=2, what="상세 수집")
+            d = rows[0] if rows else {}
+            if d:
+                break
+        except Exception as e:  # noqa: BLE001
+            last = e
+    if not d:
+        log("상세 수집 실패, 검색 결과 정보만 사용:", last)
     merged = dict(listing)
     merged.update({k: v for k, v in d.items() if v not in (None, "", [])})
     merged["url"] = url
@@ -196,8 +221,12 @@ def download_images(urls: list, folder: str) -> list:
                 break
             except Exception as e:  # noqa: BLE001
                 log("사진 받기 실패:", cand[:80], e)
+    if not out:
+        raise RuntimeError("쓸 수 있는 상품 사진이 없습니다")
     if len(out) < 3:
-        raise SystemExit(f"쓸 수 있는 상품 사진이 {len(out)}장뿐입니다 (최소 3장)")
+        log(f"상품 사진이 {len(out)}장뿐이라 반복해서 사용")
+        while len(out) < 3:
+            out.append(dict(out[len(out) % len(out)]))
     return out
 
 
@@ -509,8 +538,9 @@ def main():
     else:
         no = max([x["no"] for x in db] or [0]) + 1
         log(f"{no}번 상품 제작 시작")
-        listing, kw = pick_product(used)
-    p = product_detail(listing)
+        p, kw = pick_product(used)
+    if redo:
+        p = product_detail(listing)
     p["_keyword"] = kw
     log("선택:", p["title"], "| 별점", p.get("rating"), "| 리뷰", p.get("reviewCount"))
     imgs = download_images(p["images"], os.path.join(WORK, "img"))
