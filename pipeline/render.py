@@ -235,47 +235,35 @@ def short_count(n: int) -> str:
 
 
 def make_cover(cv: dict, no: int) -> Image.Image:
-    """대표 썸네일. 인스타 프로필(3:4로 잘림)에서도 보이도록 핵심은 y 240~1680 안에 둔다."""
+    """대표 썸네일. 위에서부터 [별점·리뷰] → [구매욕 제목] → [상품 사진].
+    유튜브 목록(위쪽 위주)·인스타 프로필(가운데 3:4) 어디서 잘려도 별점과 제목이 보이게 한다."""
     base = Image.new("RGBA", (W, H), BG + (255,))
+    y = 250
+    if cv.get("rating"):
+        star = text_layer(f"★ {float(cv['rating']):.1f}", "black", 150, ACC)
+        paste_center(base, star, W // 2, y)
+        y += star.height - 6
+    if cv.get("reviews"):
+        rv = text_layer(f"리뷰 {short_count(cv['reviews'])}+", "black", 92, INK)
+        paste_center(base, rv, W // 2, y)
+        y += rv.height + 4
+        note = text_layer(cv.get("note") or "쿠팡 상품페이지 기준", "regular", 34, SUB)
+        paste_center(base, note, W // 2, y)
+        y += note.height + 26
 
     lines = [x for x in cv.get("lines", []) if x][:2] or ["이거 하나면", "끝이에요"]
-    y = 268
-    first = text_layer(lines[0], "black", 132, INK, max_width=W - 100)
+    first = text_layer(lines[0], "black", 104, INK, max_width=W - 100)
     paste_center(base, first, W // 2, y)
-    y += first.height + 18
+    y += first.height + 12
     if len(lines) > 1:
-        second = text_layer(lines[1], "black", 132, WHITE, box=ACC + (255,), pad=(44, 14),
-                            radius=26, max_width=W - 100)
+        second = text_layer(lines[1], "black", 104, WHITE, box=ACC + (255,), pad=(40, 12),
+                            radius=24, max_width=W - 100)
         paste_center(base, second, W // 2, y)
         y += second.height
-    y += 40
+    y += 44
 
-    stats_h = 150
-    photo_bottom = 1680 - stats_h - 40
-    c = card(cv["image"], 960, max(400, photo_bottom - y))
+    c = card(cv["image"], 960, max(420, 1700 - y))
     base.alpha_composite(c, ((W - c.width) // 2, y - 28))
-
-    pills = []
-    if cv.get("rating"):
-        pills.append(text_layer(f"★ {float(cv['rating']):.1f}", "black", 86, WHITE,
-                                box=ACC + (255,), pad=(38, 16), radius=60))
-    if cv.get("reviews"):
-        pills.append(text_layer(f"리뷰 {short_count(cv['reviews'])}+", "black", 86, WHITE,
-                                box=INK + (255,), pad=(38, 16), radius=60))
-    if pills:
-        gap = 22
-        scale = min(1.0, (W - 80) / (sum(p.width for p in pills) + gap * (len(pills) - 1)))
-        if scale < 1:
-            pills = [p.resize((int(p.width * scale), int(p.height * scale)), Image.LANCZOS)
-                     for p in pills]
-        total = sum(p.width for p in pills) + gap * (len(pills) - 1)
-        x = (W - total) // 2
-        py = 1680 - stats_h
-        for p in pills:
-            base.alpha_composite(p, (x, py))
-            x += p.width + gap
-        note = text_layer(cv.get("note") or "쿠팡 상품페이지 기준", "regular", 38, SUB)
-        paste_center(base, note, W // 2, py + pills[0].height + 14)
 
     tag = text_layer(f"No.{no}", "bold", 40, WHITE, box=(31, 26, 23, 220), pad=(24, 10),
                      radius=20)
