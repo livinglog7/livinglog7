@@ -5,15 +5,31 @@
 """
 from __future__ import annotations
 
+import datetime as dt
 import html
 import json
 import os
+import shutil
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS = os.path.join(ROOT, "docs")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config  # noqa: E402
+
+KST = dt.timezone(dt.timedelta(hours=9))
+PUBLISH_HM = (11, 17)  # 인스타·유튜브·스레드 게시 시각(한국 시간). 사이트도 이 시각 이후에 공개한다.
+
+
+def is_public(p: dict, now: dt.datetime | None = None) -> bool:
+    """게시일 11:17이 지난 상품만 사이트에 보여준다 (영상은 하루 전에 만들어 두므로)."""
+    now = now or dt.datetime.now(KST)
+    pd = str(p.get("postDate") or p.get("date") or "")
+    today = now.strftime("%Y-%m-%d")
+    if pd < today:
+        return True
+    return pd == today and (now.hour, now.minute) >= PUBLISH_HM
+
 
 DISCLOSURE = "이 페이지는 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다."
 
@@ -110,6 +126,10 @@ q.addEventListener('keydown',function(ev){{if(ev.key==='Enter'&&/^\\d+$/.test(q.
 
 def build(items: list) -> None:
     os.makedirs(DOCS, exist_ok=True)
+    hidden = [p for p in items if not is_public(p)]
+    items = [p for p in items if is_public(p)]
+    for p in hidden:  # 아직 게시 전인 상품 페이지는 지워 둔다
+        shutil.rmtree(os.path.join(DOCS, str(p["no"])), ignore_errors=True)
     with open(os.path.join(DOCS, "index.html"), "w", encoding="utf-8") as fp:
         fp.write(index_page(items))
     for p in items:
@@ -129,4 +149,4 @@ if __name__ == "__main__":
     db_path = os.path.join(DOCS, "products.json")
     data = json.load(open(db_path, encoding="utf-8")) if os.path.exists(db_path) else []
     build(data)
-    print(f"사이트 생성: 상품 {len(data)}개")
+    print(f"사이트 생성: 공개 {sum(is_public(p) for p in data)}개 / 전체 {len(data)}개")

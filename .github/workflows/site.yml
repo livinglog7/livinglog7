@@ -1,0 +1,35 @@
+name: 사이트 공개 시각 맞추기
+
+# 영상은 하루 전에 만들어 두고, 인스타·유튜브·스레드는 게시일 11:17에 올라간다.
+# 사이트도 그 시각이 지난 뒤에 같은 상품이 보이도록 11:20 이후 여러 번 다시 만든다.
+on:
+  schedule:
+    - cron: "20 2 * * *"
+    - cron: "50 2 * * *"
+    - cron: "20 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site-publish
+  cancel-in-progress: false
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python pipeline/site_build.py
+      - run: |
+          git config user.name "livinglog7-bot"
+          git config user.email "livinglog7-bot@users.noreply.github.com"
+          git add docs
+          git diff --cached --quiet || git commit -m "사이트 공개 갱신 (게시 시각 기준)"
+          git pull --rebase -q origin main
+          git push -q origin HEAD:main
