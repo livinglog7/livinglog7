@@ -20,6 +20,14 @@ on:
         description: "1이면 업로드 없이 영상만 만들어 확인"
         required: false
         default: "0"
+      product_url:
+        description: "직접 고른 쿠팡 상품 주소 (비우면 자동 선택)"
+        required: false
+        default: ""
+      post_date:
+        description: "게시 날짜 YYYY-MM-DD (비우면 내일)"
+        required: false
+        default: ""
       test_backup:
         description: "시험용: 1이면 대체 음성·기본 대본으로 만들어 봄 (dry_run과 함께)"
         required: false
@@ -72,6 +80,8 @@ jobs:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           REDO_NO: ${{ github.event.inputs.redo_no }}
           EVENT_NAME: ${{ github.event_name }}
+          PRODUCT_URL: ${{ github.event.inputs.product_url }}
+          POST_DATE: ${{ github.event.inputs.post_date }}
           FORCE_BACKUP_TTS: ${{ github.event.inputs.test_backup }}
           FORCE_BACKUP_SCRIPT: ${{ github.event.inputs.test_backup }}
         run: python pipeline/run.py

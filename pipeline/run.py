@@ -38,6 +38,9 @@ POST_DAYS_AHEAD = 1  # 영상을 게시일 하루 전에 미리 만든다 (업�
 
 
 def target_date() -> dt.date:
+    fixed = os.environ.get("POST_DATE", "").strip()  # 사장님이 날짜를 지정한 경우
+    if fixed:
+        return dt.date.fromisoformat(fixed)
     return dt.datetime.now(KST).date() + dt.timedelta(days=POST_DAYS_AHEAD)
 
 
@@ -553,7 +556,19 @@ def main():
     else:
         no = max([x["no"] for x in db] or [0]) + 1
         log(f"{no}번 상품 제작 시작")
-        p, kw = pick_product(used)
+        purl = os.environ.get("PRODUCT_URL", "").strip()
+        if purl:  # 사장님이 직접 고른 쿠팡 상품
+            m = re.search(r"/products/(\d+)", purl)
+            if not m:
+                raise SystemExit("쿠팡 상품 주소에서 상품 번호를 찾지 못했습니다")
+            q = dict(re.findall(r"(itemId|vendorItemId)=(\d+)", purl))
+            p = product_detail({"productId": m.group(1), "url": purl.split("#")[0], **q})
+            if not p.get("title"):
+                raise SystemExit("상품 정보를 가져오지 못했습니다")
+            kw = os.environ.get("FORCE_KEYWORD", "").strip() or ""
+            log("지정 상품:", p["title"])
+        else:
+            p, kw = pick_product(used)
     if redo:
         p = product_detail(listing)
     p["_keyword"] = kw
