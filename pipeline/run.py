@@ -34,6 +34,11 @@ DOCS = os.path.join(ROOT, "docs")
 DB = os.path.join(DOCS, "products.json")
 WORK = os.path.join(ROOT, "work")
 KST = dt.timezone(dt.timedelta(hours=9))
+POST_DAYS_AHEAD = 1  # 영상을 게시일 하루 전에 미리 만든다 (업로드 예약 기회를 여러 번 확보)
+
+
+def target_date() -> dt.date:
+    return dt.datetime.now(KST).date() + dt.timedelta(days=POST_DAYS_AHEAD)
 
 
 def log(*a):
@@ -136,7 +141,7 @@ def partner_link(p: dict) -> str:
 def pick_product(used: set) -> tuple[dict, str]:
     forced = os.environ.get("FORCE_KEYWORD", "").strip()
     start = dt.date.fromisoformat(getattr(config, "KEYWORD_START", "2026-10-22"))
-    day = (dt.datetime.now(KST).date() - start).days
+    day = (target_date() - start).days
     order = [forced] if forced else [config.KEYWORDS[(day + k) % len(config.KEYWORDS)]
                                      for k in range(6)]
     for kw in order:
@@ -502,15 +507,25 @@ def upload_release(no: int, files: list, tag: str | None = None) -> dict:
 
 
 # ---------------------------------------------------------------- main
+def write_queue(db: list) -> None:
+    """업로드 예약 작업이 읽는 목록: 최근·예정 영상들. 이미 예약된 것은 예약 작업이 Metricool에서 확인해 건너뛴다."""
+    since = (dt.datetime.now(KST).date() - dt.timedelta(days=3)).isoformat()
+    items = []
+    for x in db:
+        pd = x.get("postDate") or x.get("date")
+        if pd >= since and x.get("video"):
+            items.append({"no": x["no"], "postDate": pd, "productName": x["name"],
+                          "videoUrl": x["video"], "thumbUrl": x.get("thumb", ""),
+                          "youtubeTitle": f"{x.get('title') or x['name']} #shorts"[:100],
+                          "caption": x["caption"], "hashtags": x.get("hashtags", [])})
+    save_json(os.path.join(DOCS, "queue.json"), {
+        "updated": dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M"), "items": items})
+
+
 def already_done_today() -> bool:
-    """정기 실행이 하루에 여러 번 돌기 때문에(재시도용) 오늘 영상이 이미 있으면 건너뛴다."""
-    try:
-        with open(os.path.join(DOCS, "latest.json"), encoding="utf-8") as fp:
-            lt = json.load(fp)
-    except Exception:  # noqa: BLE001
-        return False
-    today = dt.datetime.now(KST).strftime("%Y-%m-%d")
-    return bool(lt.get("ok")) and lt.get("addedDate") == today and lt.get("videoUrl", "").startswith("https")
+    """게시 예정일(내일) 영상이 이미 만들어졌으면 건너뛴다 (정기 실행이 하루 여러 번 돌기 때문)."""
+    want = target_date().isoformat()
+    return any((x.get("postDate") or x.get("date")) == want for x in load_db())
 
 
 def main():
@@ -622,7 +637,8 @@ def main():
     today = dt.datetime.now(KST).strftime("%Y-%m-%d")
     entry = {"no": no, "productId": str(p["productId"]), "name": p["title"], "price": price,
              "rating": rating, "reviews": reviews, "image": imgs[s["cta_image"]]["url"],
-             "link": link, "keyword": kw, "date": today, "title": title, "caption": caption,
+             "link": link, "keyword": kw, "date": today,
+             "postDate": (old.get("postDate") or old.get("date")) if redo else target_date().isoformat(), "title": title, "caption": caption,
              "hashtags": tags}
 
     if os.environ.get("DRY_RUN") == "1":
@@ -641,8 +657,10 @@ def main():
     save_json(DB, db)
     save_json(os.path.join(DOCS, "latest.json"), {
         "ok": True, "no": no, "productName": p["title"], "addedDate": today,
+        "postDate": entry["postDate"],
         "videoUrl": entry["video"], "thumbUrl": entry["thumb"], "youtubeTitle": f"{title} #shorts"[:100],
         "caption": caption, "hashtags": tags, "link": link})
+    write_queue(db)
     site_build.build(db)
     log(f"{no}번 완료")
 
