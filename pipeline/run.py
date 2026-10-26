@@ -141,12 +141,65 @@ def partner_link(p: dict) -> str:
     return "https://link.coupang.com/re/AFFSDP?" + "&".join(q)
 
 
+WOW_PROMPT = """너는 숏폼 쇼핑 큐레이터다. 아래는 쿠팡 '{kw}' 검색 판매량 상위 상품 목록이다.
+시청자가 영상을 보고 '와, 이런 게 있었어?' 하고 사고 싶어질 상품만 고른다.
+
+고르는 기준 (하나 이상 강하게 해당):
+- 신기함: 처음 보는 구조·아이디어, 쓰는 장면이 영상으로 보여주기 좋음
+- 성능·효과: 불편을 확 줄여주는 기능(자동, 무선, 센서, 전동, 압축, 접이식 등)
+- 예쁨·멋: 디자인 자체가 갖고 싶게 만듦
+빼는 기준: 다이소·마트에서 흔히 사는 평범한 상품(일반 밀폐용기, 일반 수납함, 세제, 휴지, 일반 옷걸이 등), 단순 소모품, 브랜드만 다른 흔한 물건.
+
+{items}
+
+반드시 JSON만 출력: {{"picks": [번호, ...], "reason": "한 줄"}}
+picks는 기준을 통과한 상품 번호를 좋은 순서대로(최대 4개). 통과한 게 없으면 빈 배열.
+"""
+
+
+def wow_rank(pool: list, kw: str):
+    """Gemini로 '와' 할 만한 상품을 골라 순서대로 돌려준다. 실패하면 None(기존 방식 사용)."""
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not key:
+        return None
+    items = "\n".join(
+        f"{i}. {x.get('title')} | {int(x.get('price') or 0):,}원 | 평점 {x.get('rating')} | 리뷰 {x.get('reviewCount')}"
+        for i, x in enumerate(pool[:10]))
+    text = WOW_PROMPT.replace("{kw}", kw).replace("{items}", items).replace("{{", "{").replace("}}", "}")
+    try:
+        try:
+            models = gemini_model(key)
+        except Exception:  # noqa: BLE001
+            models = ["models/" + config.GEMINI_MODEL]
+        last = None
+        for m in models:
+            try:
+                r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/{m}:generateContent",
+                                  headers={"x-goog-api-key": key}, timeout=60, json={
+                                      "contents": [{"parts": [{"text": text}]}],
+                                      "generationConfig": {"responseMimeType": "application/json",
+                                                           "temperature": 0.2}})
+                r.raise_for_status()
+                raw = "".join(x.get("text", "") for x in r.json()["candidates"][0]["content"]["parts"])
+                d = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
+                picks = [int(i) for i in d.get("picks", []) if str(i).lstrip("-").isdigit()]
+                picks = [i for i in picks if 0 <= i < min(len(pool), 10)]
+                log("와우 심사:", picks, d.get("reason", "")[:120])
+                return [pool[i] for i in dict.fromkeys(picks)]
+            except Exception as e:  # noqa: BLE001
+                last = e
+        log("와우 심사 실패, 기존 방식 사용:", last)
+    except Exception as e:  # noqa: BLE001
+        log("와우 심사 실패, 기존 방식 사용:", e)
+    return None
+
+
 def pick_product(used: set) -> tuple[dict, str]:
     forced = os.environ.get("FORCE_KEYWORD", "").strip()
     start = dt.date.fromisoformat(getattr(config, "KEYWORD_START", "2026-10-22"))
     day = (target_date() - start).days
     order = [forced] if forced else [config.KEYWORDS[(day + k) % len(config.KEYWORDS)]
-                                     for k in range(6)]
+                                     for k in range(8)]
     for kw in order:
         log("키워드:", kw)
         items = with_retry(lambda: apify({"mode": "search", "queries": [kw],
@@ -163,8 +216,13 @@ def pick_product(used: set) -> tuple[dict, str]:
         if not pool:
             log("새 상품 없음, 다음 키워드로")
             continue
-        cands = sorted(pool[:5], key=lambda x: int(x.get("reviewCount") or 0), reverse=True)
-        cands += [x for x in pool if x not in cands]
+        cands = wow_rank(pool, kw)
+        if cands is None:
+            cands = sorted(pool[:5], key=lambda x: int(x.get("reviewCount") or 0), reverse=True)
+            cands += [x for x in pool if x not in cands]
+        elif not cands:
+            log("이 키워드엔 '와' 할 만한 상품이 없음, 다음 키워드로")
+            continue
         for top in cands[:4]:  # 상세 수집·사진이 실패하면 다음 후보로
             try:
                 p = product_detail(top)
