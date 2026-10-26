@@ -149,7 +149,8 @@ WOW_PROMPT = """너는 숏폼 쇼핑 큐레이터다. 아래는 쿠팡 '{kw}' �
 - 신기함: 처음 보는 구조·아이디어, 쓰는 장면이 영상으로 보여주기 좋음
 - 성능·효과: 불편을 확 줄여주는 기능(자동, 무선, 센서, 전동, 압축, 접이식 등)
 - 예쁨·멋: 디자인 자체가 갖고 싶게 만듦
-빼는 기준(절대 고르지 말 것): 누구나 아는 대중 브랜드 소모품(페브리즈·다우니·피죤 같은 탈취제·세제류 등 '다 아는 제품'), 다이소·마트에서 흔히 사는 평범한 상품(일반 밀폐용기, 일반 수납함, 세제, 휴지, 일반 옷걸이 등), 단순 소모품, 브랜드만 다른 흔한 물건.
+[중요] 구글 검색으로 '최근 3개월 안에 TV 방송·예능·드라마 PPL·TV광고·유튜브·틱톡·인스타에서 화제가 된 상품인지' 직접 확인하고, 확인된 상품만 바이럴로 인정한다. 확인 안 되면 바이럴로 치지 않는다.
+빼는 기준(절대 고르지 말 것): 최근 방송·SNS 화제가 확인되지 않은 대중 브랜드 소모품(페브리즈·다우니·피죤 같은 '다 아는 제품'. 최근 방송·광고를 탄 게 확인되면 예외로 허용), 다이소·마트에서 흔히 사는 평범한 상품(일반 밀폐용기, 일반 수납함, 세제, 휴지, 일반 옷걸이 등), 단순 소모품, 브랜드만 다른 흔한 물건.
 
 {items}
 
@@ -178,8 +179,8 @@ def wow_rank(pool: list, kw: str):
                 r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/{m}:generateContent",
                                   headers={"x-goog-api-key": key}, timeout=60, json={
                                       "contents": [{"parts": [{"text": text}]}],
-                                      "generationConfig": {"responseMimeType": "application/json",
-                                                           "temperature": 0.2}})
+                                      "tools": [{"google_search": {}}],
+                                      "generationConfig": {"temperature": 0.2}})
                 r.raise_for_status()
                 raw = "".join(x.get("text", "") for x in r.json()["candidates"][0]["content"]["parts"])
                 d = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
