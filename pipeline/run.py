@@ -174,19 +174,22 @@ def wow_rank(pool: list, kw: str):
         except Exception:  # noqa: BLE001
             models = ["models/" + config.GEMINI_MODEL]
         last = None
-        for m in models:
+        for m, use_search in [(m, us) for m in models for us in (True, False)]:
             try:
+                body = {"contents": [{"parts": [{"text": text}]}]}
+                if use_search:  # 구글 검색으로 최근 방송·SNS 화제 확인
+                    body["tools"] = [{"google_search": {}}]
+                    body["generationConfig"] = {"temperature": 0.2}
+                else:  # 검색 호출이 실패하면 검색 없이 JSON 모드로 다시
+                    body["generationConfig"] = {"responseMimeType": "application/json", "temperature": 0.2}
                 r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/{m}:generateContent",
-                                  headers={"x-goog-api-key": key}, timeout=60, json={
-                                      "contents": [{"parts": [{"text": text}]}],
-                                      "tools": [{"google_search": {}}],
-                                      "generationConfig": {"temperature": 0.2}})
+                                  headers={"x-goog-api-key": key}, timeout=90, json=body)
                 r.raise_for_status()
                 raw = "".join(x.get("text", "") for x in r.json()["candidates"][0]["content"]["parts"])
                 d = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
                 picks = [int(i) for i in d.get("picks", []) if str(i).lstrip("-").isdigit()]
                 picks = [i for i in picks if 0 <= i < min(len(pool), 10)]
-                log("와우 심사:", picks, d.get("reason", "")[:120])
+                log("와우 심사:", ("검색" if use_search else "무검색"), picks, d.get("reason", "")[:160])
                 return [pool[i] for i in dict.fromkeys(picks)]
             except Exception as e:  # noqa: BLE001
                 last = e
