@@ -700,7 +700,7 @@ def main():
     title = s["youtube_title"]
     tags = s["hashtags"]
     caption = "\n".join([
-        f"[광고] {title}",
+        f"{title}",
         "",
         f"📌 프로필 링크 → {no}번",
         f"🔎 {config.SITE_DOMAIN}/{no}",
