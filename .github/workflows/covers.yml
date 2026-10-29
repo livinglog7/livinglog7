@@ -1,0 +1,36 @@
+name: 썸네일 다시 만들기
+on:
+  workflow_dispatch:
+    inputs:
+      nos:
+        description: "번호(쉼표)"
+        default: "1,2,3,4,5,6,7,8,9,10,11"
+permissions:
+  contents: write
+jobs:
+  covers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-noto-cjk
+          pip install -q requests pillow edge-tts
+          mkdir -p fonts
+          for w in Black Bold Medium; do
+            [ -s fonts/Pretendard-$w.otf ] || curl -fsSL -o fonts/Pretendard-$w.otf https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/public/static/Pretendard-$w.otf || true
+          done
+      - run: python pipeline/covers.py
+        env:
+          COVER_NOS: ${{ github.event.inputs.nos }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: x
+          APIFY_TOKEN: x
+      - uses: actions/upload-artifact@v4
+        with:
+          name: covers
+          path: work/cover_*.jpg
