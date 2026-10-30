@@ -578,7 +578,7 @@ def upload_release(no: int, files: list, tag: str | None = None) -> dict:
 
 
 # ---------------------------------------------------------------- main
-def make_threads_text(title: str, rating: float, reviews: int, no: int, tags: list) -> str:
+def make_threads_text(title: str, rating: float, reviews: int, no: int, tags: list, link: str = "") -> str:
     """쓰레드 전용 글. 쓰레드는 반말이 기본이라 반말로 쓴다 (수수료 문구는 법적 문구라 그대로)."""
     short = f"{reviews // 10000}만" if reviews >= 10000 else f"{reviews:,}"
     tag = (tags[0] if tags else "#살림템").split()[0]
@@ -602,7 +602,7 @@ def make_threads_text(title: str, rating: float, reviews: int, no: int, tags: li
         log("쓰레드 글 생성 실패 → 기본 문구:", e)
     if not body or "습니다" in body or "세요" in body or len(body) > 300:
         body = f"요즘 다들 쓴다는 {title[:30]}\n쿠팡 평점 {rating:.1f}에 리뷰 {short} 개야"
-    return "\n".join([body, "", f"🛒 https://{config.SITE_DOMAIN}/{no}", "",
+    return "\n".join([body, "", f"🛒 {link or f'https://{config.SITE_DOMAIN}/{no}'}", "",
                        "쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.", "", tag])
 
 
@@ -752,7 +752,7 @@ def main():
              "link": link, "keyword": kw, "date": today,
              "postDate": (old.get("postDate") or old.get("date")) if redo else target_date().isoformat(), "title": title, "caption": caption,
              "hashtags": tags,
-             "threadsText": make_threads_text(title, rating, reviews, no, tags)}
+             "threadsText": make_threads_text(title, rating, reviews, no, tags, link)}
 
     if os.environ.get("DRY_RUN") == "1":
         save_json(os.path.join(WORK, "entry.json"), entry)
