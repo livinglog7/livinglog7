@@ -205,38 +205,42 @@ def pick_product(used: set) -> tuple[dict, str]:
     day = (target_date() - start).days
     order = [forced] if forced else [config.KEYWORDS[(day + k) % len(config.KEYWORDS)]
                                      for k in range(8)]
-    for kw in order:
-        log("키워드:", kw)
-        items = with_retry(lambda: apify({"mode": "search", "queries": [kw],
-                                          "sortBy": "saleCountDesc", "minRating": 4,
-                                          "maxPages": 1, "maxListings": 10,
-                                          "fetchDetails": False}, 10), what="상품 검색")
-        items = [x for x in items if x.get("title") and x.get("productId") and not x.get("isAd")]
-        items = [x for x in items
-                 if not any(w in x["title"] for w in getattr(config, "EXCLUDE_WORDS", []))]
-        fresh = [x for x in items if str(x["productId"]) not in used]
-        good = [x for x in fresh if float(x.get("rating") or 0) >= config.MIN_RATING
-                and int(x.get("reviewCount") or 0) >= config.MIN_REVIEWS]
-        pool = good or fresh
-        if not pool:
-            log("새 상품 없음, 다음 키워드로")
-            continue
-        cands = wow_rank(pool, kw)
-        if cands is None:
-            cands = sorted(pool[:5], key=lambda x: int(x.get("reviewCount") or 0), reverse=True)
-            cands += [x for x in pool if x not in cands]
-        elif not cands:
-            log("이 키워드엔 '와' 할 만한 상품이 없음, 다음 키워드로")
-            continue
-        for top in cands[:4]:  # 상세 수집·사진이 실패하면 다음 후보로
-            try:
-                p = product_detail(top)
-                if len([u for u in p["images"] if u]) < 1:
-                    raise RuntimeError("사진 없음")
-                return p, kw
-            except Exception as e:  # noqa: BLE001
-                log("후보 건너뜀:", top.get("title", "")[:40], e)
-        log("이 키워드의 후보가 모두 실패, 다음 키워드로")
+    searched: dict = {}  # 키워드별 검색 결과 (단계를 바꿔 다시 볼 때 Apify를 또 쓰지 않도록)
+    # 평점 기준: 4.8 이상을 먼저 찾고, 후보가 모자라면 4.7 이상, 그래도 없으면 마지막 수단으로 4.5 이상
+    for floor in getattr(config, "RATING_STEPS", (4.8, 4.7, 4.5)):
+        log(f"== 평점 {floor} 이상 후보 찾는 중 ==")
+        for kw in order:
+            log("키워드:", kw)
+            if kw not in searched:
+                searched[kw] = with_retry(lambda: apify({"mode": "search", "queries": [kw],
+                                                         "sortBy": "saleCountDesc", "minRating": 4,
+                                                         "maxPages": 1, "maxListings": 10,
+                                                         "fetchDetails": False}, 10), what="상품 검색")
+            items = [x for x in searched[kw] if x.get("title") and x.get("productId") and not x.get("isAd")]
+            items = [x for x in items
+                     if not any(w in x["title"] for w in getattr(config, "EXCLUDE_WORDS", []))]
+            fresh = [x for x in items if str(x["productId"]) not in used]
+            pool = [x for x in fresh if float(x.get("rating") or 0) >= floor
+                    and int(x.get("reviewCount") or 0) >= config.MIN_REVIEWS]
+            if not pool:
+                log(f"평점 {floor} 이상 새 상품 없음, 다음 키워드로")
+                continue
+            cands = wow_rank(pool, kw)
+            if cands is None:
+                cands = sorted(pool[:5], key=lambda x: int(x.get("reviewCount") or 0), reverse=True)
+                cands += [x for x in pool if x not in cands]
+            elif not cands:
+                log("이 키워드엔 '와' 할 만한 상품이 없음, 다음 키워드로")
+                continue
+            for top in cands[:4]:  # 상세 수집·사진이 실패하면 다음 후보로
+                try:
+                    p = product_detail(top)
+                    if len([u for u in p["images"] if u]) < 1:
+                        raise RuntimeError("사진 없음")
+                    return p, kw
+                except Exception as e:  # noqa: BLE001
+                    log("후보 건너뜀:", top.get("title", "")[:40], e)
+            log("이 키워드의 후보가 모두 실패, 다음 키워드로")
     raise SystemExit("오늘 키워드들에서 쓸 수 있는 상품을 찾지 못했습니다")
 
 

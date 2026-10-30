@@ -31,6 +31,7 @@ EXCLUDE_WORDS = [
 
 # 상품 선택 기준
 MIN_RATING = 4.5
+RATING_STEPS = (4.8, 4.7, 4.5)  # 4.8 이상 우선 → 모자라면 4.7 → 마지막 수단 4.5
 MIN_REVIEWS = 100
 
 # ElevenLabs 목소리 (사장님 선택: Anna Kim)
