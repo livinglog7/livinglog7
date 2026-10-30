@@ -573,6 +573,34 @@ def upload_release(no: int, files: list, tag: str | None = None) -> dict:
 
 
 # ---------------------------------------------------------------- main
+def make_threads_text(title: str, rating: float, reviews: int, no: int, tags: list) -> str:
+    """쓰레드 전용 글. 쓰레드는 반말이 기본이라 반말로 쓴다 (수수료 문구는 법적 문구라 그대로)."""
+    short = f"{reviews // 10000}만" if reviews >= 10000 else f"{reviews:,}"
+    tag = (tags[0] if tags else "#살림템").split()[0]
+    body = None
+    try:
+        key = env("GEMINI_API_KEY")
+        prompt = (f"쿠팡 상품 '{title}'을(를) 쓰레드(Threads)에 소개하는 짧은 글을 써줘.\n"
+                  "- 반드시 반말(예: ~야, ~해, ~있어)로. 존댓말·'추천드려요'·광고 말투 금지\n"
+                  "- 첫 줄: 이 상품이 필요한 사람이 '나잖아' 하고 멈출 한 줄 질문이나 공감\n"
+                  "- 2~3줄 이내, 이모지 1개까지. 확인되지 않은 효능·성분·수치는 쓰지 마\n"
+                  f"- 마지막 줄에 '쿠팡 평점 {rating:.1f}에 리뷰 {short} 개야' 문장을 넣어\n"
+                  "- 링크·해시태그·수수료 문구는 쓰지 마. 본문만 출력")
+        for m in (gemini_model(key),):
+            r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/{m}:generateContent",
+                              headers={"x-goog-api-key": key}, timeout=60,
+                              json={"contents": [{"parts": [{"text": prompt}]}],
+                                    "generationConfig": {"temperature": 0.8}})
+            r.raise_for_status()
+            body = "".join(x.get("text", "") for x in r.json()["candidates"][0]["content"]["parts"]).strip()
+    except Exception as e:  # noqa: BLE001
+        log("쓰레드 글 생성 실패 → 기본 문구:", e)
+    if not body or "습니다" in body or "세요" in body or len(body) > 300:
+        body = f"요즘 다들 쓴다는 {title[:30]}\n쿠팡 평점 {rating:.1f}에 리뷰 {short} 개야"
+    return "\n".join([body, "", f"🛒 https://{config.SITE_DOMAIN}/{no}", "",
+                       "쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.", "", tag])
+
+
 def write_queue(db: list) -> None:
     """업로드 예약 작업이 읽는 목록: 최근·예정 영상들. 이미 예약된 것은 예약 작업이 Metricool에서 확인해 건너뛴다."""
     since = (dt.datetime.now(KST).date() - dt.timedelta(days=3)).isoformat()
@@ -583,7 +611,8 @@ def write_queue(db: list) -> None:
             items.append({"no": x["no"], "postDate": pd, "productName": x["name"],
                           "videoUrl": x["video"], "thumbUrl": x.get("thumb", ""),
                           "youtubeTitle": f"{x.get('title') or x['name']} #shorts"[:100],
-                          "caption": x["caption"], "hashtags": x.get("hashtags", [])})
+                          "caption": x["caption"], "threadsText": x.get("threadsText", ""),
+                          "hashtags": x.get("hashtags", [])})
     save_json(os.path.join(DOCS, "queue.json"), {
         "updated": dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M"), "items": items})
 
@@ -717,7 +746,8 @@ def main():
              "rating": rating, "reviews": reviews, "image": imgs[s["cta_image"]]["url"],
              "link": link, "keyword": kw, "date": today,
              "postDate": (old.get("postDate") or old.get("date")) if redo else target_date().isoformat(), "title": title, "caption": caption,
-             "hashtags": tags}
+             "hashtags": tags,
+             "threadsText": make_threads_text(title, rating, reviews, no, tags)}
 
     if os.environ.get("DRY_RUN") == "1":
         save_json(os.path.join(WORK, "entry.json"), entry)
