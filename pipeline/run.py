@@ -307,7 +307,7 @@ def download_images(urls: list, folder: str) -> list:
 
 # ---------------------------------------------------------------- Gemini 대본
 PROMPT = """너는 살림 채널 '리빙로그'의 숏폼 광고 카피라이터다. 첨부한 상품 사진(번호 0부터)과 아래 '확인된 정보'만 보고,
-보는 사람이 '이거 사야겠다'고 느끼게 하는 25초 세로 광고 영상의 장면 문구를 만든다.
+보는 사람이 '이거 사야겠다'고 느끼게 하는 20초 세로 광고 영상의 장면 문구를 만든다.
 
 사람들은 '예쁘거나, 신기하거나, 멋있거나, 성능·효과가 좋으면서 판매량과 평점으로 검증된' 제품을 산다.
 사진을 보고 이 상품이 그중 어디에 해당하는지 골라 그 매력을 가장 앞세운다(디자인이 예쁘면 예쁨을, 구조가 신기하면 쓰는 장면을, 효과가 좋으면 결과를).
@@ -328,14 +328,14 @@ PROMPT = """너는 살림 채널 '리빙로그'의 숏폼 광고 카피라이터
   예) ["기름때 한번에", "싹 지워져요"], ["좁은 베란다", "분리수거 끝"], ["발냄새 찬양템", "발을 씻자"].
   질문형보다 결과·변화형. 첫 줄은 상품이 해결하는 문제나 감탄(찬양템·인생템 등), 둘째 줄은 행동을 부르는 한마디(주황 박스)로 '당장 사고 싶게'. 사실에 근거.
 - hook: 시청자가 겪는 생활 속 불편을 찌르는 질문이나 공감(스크롤을 멈추게). 가장 상황이 잘 보이는 사진 선택.
-- benefits: 3개. 각각 서로 다른 장점(공간·사용법·보관·다른 용도 등)을 보여주는 서로 다른 사진 선택. 사람이 쓰는 장면 사진을 우선.
+- benefits: 2개. 각각 서로 다른 장점(공간·사용법·보관·다른 용도 등)을 보여주는 서로 다른 사진 선택. 사람이 쓰는 장면 사진을 우선.
 - proof_image / price_image / cta_image: 상품 전체가 잘 보이는 사진.
 - price_label: 상품명에 구성(예: 3개 세트, 2팩)이 분명히 있을 때만 '3개 세트'처럼, 없으면 빈 문자열.
 
 반드시 아래 JSON만 출력:
 {"thumb": {"lines": ["", ""], "image": 0},
  "hook": {"lines": ["", ""], "narration": "", "image": 0},
- "benefits": [{"lines": ["", ""], "narration": "", "image": 1}, ...3개],
+ "benefits": [{"lines": ["", ""], "narration": "", "image": 1}, ...2개],
  "proof_image": 0, "price_image": 0, "cta_image": 0, "price_label": "",
  "youtube_title": "60자 이내 검색 잘 되는 제목", "hashtags": ["#..", "#..", "#..", "#..", "#.."]}
 
@@ -392,7 +392,6 @@ def backup_script(p: dict, n: int) -> dict:
         "benefits": [
             {"lines": ["리뷰가 증명한", "인기 제품"], "narration": f"리뷰가 {short} 개 넘게 쌓인 제품이에요", "image": pick(1)},
             {"lines": ["직접 보면", "더 좋아요"], "narration": "사진으로 보면 바로 감이 와요", "image": pick(2)},
-            {"lines": [f"평점 {r:.1f}", "만족도 높아요"], "narration": f"평점도 {r:.1f}점으로 높아요", "image": pick(3)},
         ],
         "proof_image": 0, "price_image": 0, "cta_image": 0, "price_label": "",
         "youtube_title": f"{name} 리뷰 {short}개 인기 살림템"[:60],
@@ -463,7 +462,7 @@ def gemini_script(p: dict, imgs: list) -> dict:
         return ls[:2] or ["", ""]
 
     hook = s.get("hook") or {}
-    bens = [b for b in (s.get("benefits") or []) if b and b.get("narration")][:3]
+    bens = [b for b in (s.get("benefits") or []) if b and b.get("narration")][:2]
     if len(bens) < 2:
         raise RuntimeError("대본 장면이 부족합니다")
     thumb = s.get("thumb") or {}
@@ -691,10 +690,10 @@ def main():
         badges.append("무료배송")
 
     ip = lambda k: imgs[k]["path"]  # noqa: E731
-    # 대표 썸네일 = 영상 첫 0.8초 (어느 플랫폼에서 첫 화면을 잡아도 제목이 보이게)
+    # 대표 썸네일은 별도 이미지로만 만든다(thumb_only). 영상은 첫 화면부터 움직이는 훅으로 시작해 이탈을 줄인다
     scenes = [{"type": "cover", "image": ip(s["thumb"]["image"]), "lines": s["thumb"]["lines"],
                "rating": rating if rating >= 4.0 else None,
-               "reviews": reviews if reviews >= 50 else None, "duration": 0.8}]
+               "reviews": reviews if reviews >= 50 else None, "thumb_only": True}]
     scenes += [{"type": "hook", "image": ip(s["hook"]["image"]), "lines": s["hook"]["lines"],
                "say": s["hook"]["narration"], "excited": True}]
     for b in s["benefits"]:

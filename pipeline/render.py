@@ -9,7 +9,7 @@ Pillow로 프레임을 그리고 FFmpeg로 인코딩한다. 외부 영상 서비
   proof   : 별점·리뷰 수 숫자 올라가는 효과 + 사진
   price   : 가격 숫자 올라가는 효과 + 배송 배지 + 사진
   cta     : "프로필 링크에서 N번" + 도메인 + 사진
-  cover   : 대표 썸네일(구매욕 제목 + 별점·리뷰 배지). 영상 첫 0.8초로도 쓴다
+  cover   : 대표 썸네일(구매욕 제목 + 별점·리뷰 배지). 썸네일 이미지로만 쓴다(영상에는 넣지 않음)
 """
 from __future__ import annotations
 
@@ -374,7 +374,8 @@ def build_audio(scenes: list, durations: list, out: str, bgm: str | None) -> Non
 # ---------------------------------------------------------------- main render
 def render(spec: dict, out_path: str, workdir: str) -> dict:
     no = spec["no"]
-    scenes = spec["scenes"]
+    thumb_scene = next((sc for sc in spec["scenes"] if sc.get("thumb_only")), None)
+    scenes = [sc for sc in spec["scenes"] if not sc.get("thumb_only")]
     durations = []
     for sc in scenes:
         if sc.get("duration"):
@@ -436,8 +437,11 @@ def render(spec: dict, out_path: str, workdir: str) -> dict:
 
     # 대표 썸네일: cover 장면이 있으면 그것, 없으면 첫 장면 완성본
     thumb = os.path.splitext(out_path)[0] + ".jpg"
-    ci = next((k for k, sc in enumerate(scenes) if sc["type"] == "cover"), 0)
-    scene_frame(ci, 5.0).convert("RGB").save(thumb, quality=92)
+    if thumb_scene is not None:
+        build_scene(thumb_scene, no)[0].convert("RGB").save(thumb, quality=92)
+    else:
+        ci = next((k for k, sc in enumerate(scenes) if sc["type"] == "cover"), 0)
+        scene_frame(ci, 5.0).convert("RGB").save(thumb, quality=92)
     return {"duration": round(sum(durations), 2), "thumbnail": thumb, "frames": total_frames}
 
 
