@@ -600,7 +600,7 @@ def make_threads_text(title: str, rating: float, reviews: int, no: int, tags: li
     except Exception as e:  # noqa: BLE001
         log("쓰레드 글 생성 실패 → 기본 문구:", e)
     if not body or "습니다" in body or "세요" in body or len(body) > 300:
-        body = f"요즘 다들 쓴다는 {title[:30]}\n쿠팡 평점 {rating:.1f}에 리뷰 {short} 개야"
+        body = f"요즘 다들 쓴다는 {title[:30].rsplit(' ', 1)[0] if len(title) > 30 else title}\n쿠팡 평점 {rating:.1f}에 리뷰 {short} 개야"
     return "\n".join([body, "", f"🛒 {link or f'https://{config.SITE_DOMAIN}/{no}'}", "",
                        "쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.", "", tag])
 
